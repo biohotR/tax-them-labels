@@ -1,7 +1,12 @@
 import ast
 
+import nltk
 import pandas as pd
+from nltk.corpus import wordnet as wn
 from unidecode import unidecode
+
+nltk.download('wordnet')
+nltk.download('omw-1.4')
 
 GENERIC_WORDS = {"services", "management", "solutions", "group"}
 
@@ -9,6 +14,18 @@ companies_df = pd.read_csv('company_list.csv')
 taxonomy_df = pd.read_csv('insurance_taxonomy.csv')
 
 companies_df["business_tags"] = companies_df["business_tags"].apply(ast.literal_eval)
+
+def get_synonyms(word, max_synonyms=3):
+    synonyms = set()
+
+    for syn in wn.synsets(word):
+        for lemma in syn.lemmas():
+            synonym = normalize(lemma.name().replace("_", " "))
+            if synonym != word:
+                synonyms.add(synonym)
+                if len(synonyms) >= max_synonyms:
+                    return synonyms
+    return synonyms
 
 def normalize(text):
     if not isinstance(text, str):
@@ -78,10 +95,25 @@ def main():
     # normalize the taxonomy labels
     taxonomy_df["normalized_label"] = taxonomy_df["label"].apply(normalize)
 
-    label_keywords = {
-        row["label"]: row["normalized_label"].split()
-        for _, row in taxonomy_df.iterrows()
-    }
+    # label_keywords = {
+    #     row["label"]: row["normalized_label"].split()
+    #     for _, row in taxonomy_df.iterrows()
+    # }
+
+    label_keywords = {}
+
+    for _, row in taxonomy_df.iterrows():
+        label = row["label"]
+        base_keywords = row["normalized_label"].split()
+
+        expanded_keywords = set(base_keywords)
+
+        for kw in base_keywords:
+            if kw in GENERIC_WORDS:
+                continue
+            expanded_keywords.update(get_synonyms(kw))
+
+        label_keywords[label] = expanded_keywords
 
     # create a new column with all the text data normalized/flattened
     companies_df["company_text"] = (
