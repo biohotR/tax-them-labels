@@ -8,7 +8,8 @@ from unidecode import unidecode
 nltk.download('wordnet')
 nltk.download('omw-1.4')
 
-GENERIC_WORDS = {"services", "management", "solutions", "group"}
+GENERIC_WORDS = {"services", "management", "solutions", "group", "and"}
+SYNONYM_CACHE = {}
 
 companies_df = pd.read_csv('company_list.csv')
 taxonomy_df = pd.read_csv('insurance_taxonomy.csv')
@@ -85,11 +86,12 @@ def score_rule_match(row, label_keywords):
         elif desc_hits == 1:
             score += 1
 
-        if score >= 5:
-            scores[label] = score
+        if score >= 7:
+            scores[label] = (score, sorted(matched_keywords))
 
 
-    return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    # return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    return sorted([(label, s_kw[0], s_kw[1]) for label, s_kw in scores.items()], key=lambda x: x[1], reverse=True)
 
 def main():
     # normalize the taxonomy labels
@@ -111,6 +113,8 @@ def main():
         for kw in base_keywords:
             if kw in GENERIC_WORDS:
                 continue
+            if kw not in SYNONYM_CACHE:
+                SYNONYM_CACHE[kw] = get_synonyms(kw)
             expanded_keywords.update(get_synonyms(kw))
 
         label_keywords[label] = expanded_keywords
@@ -137,8 +141,11 @@ def main():
     print(companies_df[["scored_rule_matches"]].iloc[0])
 
     # View the lowest scoring labels for the first company
-    for label, score in reversed(companies_df["scored_rule_matches"].iloc[0]):
-        print(f"{score:>2}  -  {label}")
+    # for label, score in reversed(companies_df["scored_rule_matches"].iloc[0]):
+    #     print(f"{score:>2}  -  {label}")
+
+    for label, score, keywords in reversed(companies_df["scored_rule_matches"].iloc[0]):
+        print(f"{score:>2}  -  {label} (matched: {', '.join(keywords)})")
 
 if __name__ == "__main__":
     main()
