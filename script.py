@@ -8,7 +8,11 @@ from unidecode import unidecode
 nltk.download('wordnet')
 nltk.download('omw-1.4')
 
-GENERIC_WORDS = {"services", "management", "solutions", "group", "and"}
+GENERIC_WORDS = {
+    "services", "management", "solutions", "group", "and",
+    "company", "system", "business", "operations", "service"
+}
+
 SYNONYM_CACHE = {}
 
 companies_df = pd.read_csv('company_list.csv')
@@ -58,13 +62,16 @@ def score_rule_match(row, label_keywords):
         desc_hits = 0
 
         matched_keywords = set()
+        base_keywords = keywords["base"]
+        synonyms = keywords["synonyms"]
 
-        for kw in keywords:
+        for kw in base_keywords:
             if kw in GENERIC_WORDS:
                 continue
             if kw in description:
                 desc_hits += 1
                 matched_keywords.add(kw)
+                score += 1
             if kw in sector:
                 score += 1
                 matched_keywords.add(kw)
@@ -76,6 +83,25 @@ def score_rule_match(row, label_keywords):
                 matched_keywords.add(kw)
             if any(kw in normalize(tag) for tag in tags):
                 score += 3
+                matched_keywords.add(kw)
+
+        for kw in synonyms:
+            if kw in GENERIC_WORDS:
+                continue
+            if kw in description:
+                score += 0.5
+                matched_keywords.add(kw)
+            if kw in sector:
+                score += 0.5
+                matched_keywords.add(kw)
+            if kw in category:
+                score += 1
+                matched_keywords.add(kw)
+            if kw in niche:
+                score += 1.5
+                matched_keywords.add(kw)
+            if any(kw in normalize(tag) for tag in tags):
+                score += 1.5
                 matched_keywords.add(kw)
         
         if len(matched_keywords) < 2:
@@ -97,27 +123,30 @@ def main():
     # normalize the taxonomy labels
     taxonomy_df["normalized_label"] = taxonomy_df["label"].apply(normalize)
 
-    # label_keywords = {
-    #     row["label"]: row["normalized_label"].split()
-    #     for _, row in taxonomy_df.iterrows()
-    # }
-
     label_keywords = {}
 
     for _, row in taxonomy_df.iterrows():
         label = row["label"]
         base_keywords = row["normalized_label"].split()
 
-        expanded_keywords = set(base_keywords)
+        # expanded_keywords = set(base_keywords)
+        base_set = set()
+        synonym_set = set()
 
         for kw in base_keywords:
             if kw in GENERIC_WORDS:
                 continue
+
+            base_set.add(kw)
+
             if kw not in SYNONYM_CACHE:
                 SYNONYM_CACHE[kw] = get_synonyms(kw)
-            expanded_keywords.update(get_synonyms(kw))
+            synonym_set.update(SYNONYM_CACHE[kw])
 
-        label_keywords[label] = expanded_keywords
+        label_keywords[label] = {
+            "base": base_set,
+            "synonyms": synonym_set
+        }
 
     # create a new column with all the text data normalized/flattened
     companies_df["company_text"] = (
@@ -140,9 +169,6 @@ def main():
     print(companies_df[["company_text"]].iloc[0])
     print(companies_df[["scored_rule_matches"]].iloc[0])
 
-    # View the lowest scoring labels for the first company
-    # for label, score in reversed(companies_df["scored_rule_matches"].iloc[0]):
-    #     print(f"{score:>2}  -  {label}")
 
     for label, score, keywords in reversed(companies_df["scored_rule_matches"].iloc[0]):
         print(f"{score:>2}  -  {label} (matched: {', '.join(keywords)})")
