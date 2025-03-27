@@ -1,0 +1,112 @@
+import ast
+
+import pandas as pd
+from unidecode import unidecode
+
+GENERIC_WORDS = {"services", "management", "solutions", "group"}
+
+companies_df = pd.read_csv('company_list.csv')
+taxonomy_df = pd.read_csv('insurance_taxonomy.csv')
+
+companies_df["business_tags"] = companies_df["business_tags"].apply(ast.literal_eval)
+
+def normalize(text):
+    if not isinstance(text, str):
+        return ""
+    text = unidecode(text)
+    text = text.lower().strip()
+    text = ' '.join(text.split())
+
+    return text
+
+def flatten_tags(tags):
+    if isinstance(tags, str):
+        return " ".join(normalize(tag) for tag in tags)
+    return ""
+
+def score_rule_match(row, label_keywords):
+    scores = {}
+
+    description = normalize(row["description"])
+    sector = normalize(row["sector"])
+    category = normalize(row["category"])
+    niche = normalize(row["niche"])
+    tags = row["business_tags"]
+    if not isinstance(tags, list):
+        tags = []
+
+    for label, keywords in label_keywords.items():
+        score = 0
+        desc_hits = 0
+
+        matched_keywords = set()
+
+        for kw in keywords:
+            if kw in GENERIC_WORDS:
+                continue
+            if kw in description:
+                desc_hits += 1
+                matched_keywords.add(kw)
+            if kw in sector:
+                score += 1
+                matched_keywords.add(kw)
+            if kw in category:
+                score += 2
+                matched_keywords.add(kw)
+            if kw in niche:
+                score += 3
+                matched_keywords.add(kw)
+            if any(kw in normalize(tag) for tag in tags):
+                score += 3
+                matched_keywords.add(kw)
+        
+        if len(matched_keywords) < 2:
+            continue
+
+        if desc_hits >= 2:
+            score += 2
+        elif desc_hits == 1:
+            score += 1
+
+        if score >= 5:
+            scores[label] = score
+
+
+    return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+def main():
+    # normalize the taxonomy labels
+    taxonomy_df["normalized_label"] = taxonomy_df["label"].apply(normalize)
+
+    label_keywords = {
+        row["label"]: row["normalized_label"].split()
+        for _, row in taxonomy_df.iterrows()
+    }
+
+    # create a new column with all the text data normalized/flattened
+    companies_df["company_text"] = (
+        companies_df["description"].apply(normalize) +
+        companies_df["business_tags"].apply(flatten_tags) +
+        companies_df["sector"].apply(normalize) + 
+        companies_df["category"].apply(normalize) + 
+        companies_df["niche"].apply(normalize)
+    )
+
+    companies_df["scored_rule_matches"] = companies_df.apply(
+        lambda row: score_rule_match(row, label_keywords),
+        axis=1
+    )
+
+    # print(companies_df[["company_text", "rule_based_matches"]].head(1))
+    pd.set_option("display.max_colwidth", None)
+
+    # print(companies_df.columns.to_list())
+    print(companies_df[["company_text"]].iloc[0])
+    print(companies_df[["scored_rule_matches"]].iloc[0])
+
+    # View the lowest scoring labels for the first company
+    for label, score in reversed(companies_df["scored_rule_matches"].iloc[0]):
+        print(f"{score:>2}  -  {label}")
+
+if __name__ == "__main__":
+    main()
